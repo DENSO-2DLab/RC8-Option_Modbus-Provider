@@ -1,0 +1,249 @@
+'!TITLE "Modbus - Server Loop"
+
+'RC8 Option - Modbus Server ------------------------------------------------
+' @file    ModbusServer.pcs
+' @brief   Modbus Server Receive Query and Send Responce Functions
+' @details This program start the Modbus Server
+'
+' @version 1.0.1
+' @date    2016/05/02
+' @author  Carlos A. Lopez (DPAM - R&D)	
+'
+' Software License Agreement (MIT License)
+'
+' @copyright Copyright (c) 2019 DENSO 2DLab
+'
+' Permission is hereby granted, free of charge, to any person obtaining a copy
+' of this software and associated documentation files (the "Software"), to deal
+' in the Software without restriction, including without limitation the rights
+' to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+' copies of the Software, and to permit persons to whom the Software is
+' furnished to do so, subject to the following conditions:
+'
+' The above copyright notice and this permission notice shall be included in
+' all copies or substantial portions of the Software.
+'
+' THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+' IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+' FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+' AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+' LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+' OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+' THE SOFTWARE.
+'-------------------------------------------------------------------------------
+
+#Include "ModbusServer.h"
+
+Sub Main
+	'Local Variables
+	Dim DataResponse As Variant
+	Dim DataRequest As Variant
+
+	Call ModBusInit	'Initialize Modbus Server
+	
+	'******Start Server Listen Mode******* 
+	Do 
+		'Check if there is a request from a client device
+		DataRequest = caoCtrl.Execute("ReceiveQuery", DataResponse)
+		If VarType(DataRequest) <> 0 Then 					'Request Received
+			DataResponse = ProcessMessage(DataRequest)
+			If VarType(DataResponse) <> 0 Then 				'No Error Found
+				'Send Response
+				caoCtrl.Execute "SendReply", DataResponse
+			End If	
+		End If 
+		Delay 100											'Sleep to save on processing. 	
+	Loop While 1
+	'*************************************
+End Sub
+
+
+'Modbus Init-----------------------------------------
+'Input: None
+'Output: Modbus Communication Started
+'----------------------------------------------------
+Sub ModbusInit
+	'Parameter Data
+	Dim arg1 As String	'Controller Name
+	Dim arg2 As String	'Provider Name
+	Dim arg3 As String	'PC Name
+	Dim arg4 As String	'Option
+
+	'Set Parameters
+	arg1 = ""
+	arg2 = "CaoProv.Modbus.X"
+	arg3 = ""
+	arg4 = "Client=False, Sync=True, Conn=eth:127.0.0.0"
+
+	'Initialize ModBus Provider (Set as a Server)
+	caoCtrl = cao.AddController(arg1, arg2, arg3, arg4)
+End Sub
+
+'Process Message-------------------------------------
+'Input: Modbus Request Message from Client Device 
+'Output: Modbus Response Message to Client Device
+'----------------------------------------------------
+Function ProcessMessage(Message As Variant) As Variant
+	'----Local Variables----
+	Dim ClientIP As String			'Client Address
+	Dim FunctionCode As Long 		'Function Part of Modbus Frame
+	Dim Data As Variant				'Data Part of Modbus Frame
+	Dim Data_Start As Long			'Start Register	
+	Dim Data_Total As Long			'Total Number of Addr
+	Dim Message_Result As Integer	'Result for Message Processing
+	Dim Request_Output As Variant	'Result for Data Request
+
+	Dim	bArray(2000) As Integer		'Temp Variable
+	Dim iArray(124) As Integer		'Temp Variable
+	Dim Index As Integer			'Temp Variable (Address Index)
+	
+	ClientIP = Message(0)		'Set Message Client IP Addr
+	FunctionCode = Message(2)	'Set Message Function Code
+	Data = Message(3)			'Set Message Data
+
+	Select Case FunctionCode
+		Case READ_COILS, READ_DISCRETE_INPUTS
+			ExceptionCode = DataCheck(Data, "Read")	'Check Data (Read)
+			If ExceptionCode = 0	Then
+				'No Error
+				Data_Start = Data(0)								'Set Start Address
+				Data_Total = Data(1) - 1							'Set Total Address to Read
+				Request_Output = CreateArray(Data_Total, VT_BOOL)	'Set Data Output as Byte Array
+				If FunctionCode = READ_COILS Then
+					'Function 1
+					Call UpdateCoilTable("Read")					'Update Coil Table
+					For Index = 0 To Data_Total - 1					'Obtain Subset of Coil Table
+						bArray(Index) = Coils(Data_Start + Index)
+					Next Index
+				Else	
+					'Function 2
+					Call UpdateDITable								'Update Digital Input Table 
+					For Index = 0 To Data_Total - 1					'Obtain Subset of Digital Table
+						bArray(Index) = DiscreteInputs(Data_Start + Index)
+					Next Index
+				End If
+				Request_Output = bArray								'Set Data Message					
+				Message_Result = True								'Message Processing Successful
+			Else	
+				'Error
+				Message_Result = False								'Message Processing Unsuccessful
+			End If
+		'--------------------------------------------------------------------------------------------
+		Case READ_HOLDING_REGISTERS, READ_INPUT_REGISTERS
+			ExceptionCode = DataCheck(Data, "Read")	'Check Data (Read)
+			If ExceptionCode = 0 Then
+				'No Error
+				Data_Start = Data(0)								'Set start Address
+				Data_Total = Data(1) - 1 							'Set Total Address to Read
+				Request_Output = CreateArray(Data_Total, VT_I4)		'Set Data Output As Word 16 bit
+				If FunctionCode = READ_HOLDING_REGISTERS Then
+					'Function 3
+					Call UpdateHoldRegisters("Read")				'Update Holding Registers Table
+					For Index = 0 To Data_Total - 1					'Obtain Subset of Holding Register Table
+						iArray(Index) = HoldingRegisters(Data_Start + Index)
+					Next Index
+				Else
+					'Function 4
+					CAll UpdateInputRegisters						'Update Input Register Table
+					For Index = 0 To Data_Total -1 					'Obtain Subset of Holding Register Table 
+						iArray(Index) = InputRegisters(Data_Start + Index)
+					Next Index
+				End If
+				Request_Output = iArray								'Set Data Message
+				Message_Result = True								'Message Processing Successful
+			Else 
+				'Error
+				Message_Result = False								'Message Processing Unsuccessful
+			End If
+		'--------------------------------------------------------------------------------------------
+		Case READ_EXCEPTION_STATUS
+			Request_Output = ExceptionCode		'Set Current Exception Error Message	
+			Message_Result = True				'Message Processing Successful
+		'--------------------------------------------------------------------------------------------
+		Case WRITE_MULTIPLE_COILS, WRITE_MULTIPLE_REGISTERS
+			ExceptionCode = DataCheck(Data, "Read")	'Check Data (Write)
+			If ExceptionCode = 0	Then
+				'No Error
+				Data_Start = Data(0)									'Set Start Address 
+				Data_Total = Data(1) 									'Set Total Address to Write
+				If FunctionCode = WRITE_MULTIPLE_COILS Then 
+					'Function 15
+					Request_Output = CreateArray(Data_Total, VT_BOOL)	'Set Data Output as Byte Array
+					Request_Output = Data(2)							'Save Data Locally
+					For Index = 0 To Data_Total	- 1						'Update Coil Table
+						Coils(Data_Start + Index) = Request_Output(Index)
+					Next Index
+					Call UpdateCoilTable("Write")						'Update Coil Table
+					Request_Output = bArray								
+					Message_Result = True								'Message Processing Successful
+				Else 
+					'Function 16
+					Request_Output = CreateArray(Data_Total, VT_I4)		'Set Data Output as Integer Array
+					Request_Output = Data(2)							'Save Data Locally
+					For Index = 0 To Data_Total - 1						'Update Holding Register Table
+						HoldingRegisters(Data_Start + Index) = Request_Output(Index)
+					Next Index
+					Call UpdateHoldRegisters("Write")				'Update Holding Registers
+					Request_Output = iArray			
+					Message_Result = True								'Message Processing Successful
+				End If 
+			Else 
+				'Error
+				Message_Result = False								'Message Processing Unsuccessful
+			End If 
+		'--------------------------------------------------------------------------------------------
+		Case Else
+			ExceptionCode = ILLEGAL_FUNCTION	'Function does not exist
+		'--------------------------------------------------------------------------------------------
+	End Select
+
+	'Output Process Message Response
+	ProcessMessage = Array(FunctionCode, Message_Result, Request_Output)
+End Function
+
+'Data Check------------------------------------------
+'Input(1) Data: Data array to check
+'Input(2) CheckMode: Read or Write Data Check Mode
+'Output: ErrorCode (or no error)
+'----------------------------------------------------
+Function DataCheck(Data As Variant, CheckMode As String) As Variant
+	Dim Start_Addr As Long	'Starting Address
+	Dim Total_Addr AS Long	'Total Addresses to Read
+	
+	Select Case CheckMode
+		Case "Read"	
+			'Read Type Function
+			Start_Addr = Data(0)	'Set Message Starting Address
+			Total_Addr = Data(1)	'Set Quantity of Coils to Read
+			If 0 < Total_Addr Then 
+				If ((Start_Addr + Total_Addr) <= MEM_ARRAY_SIZE) Then
+					DataCheck = 0					'No Error
+				Else
+					DataCheck = ILLEGAL_DATA_VALUE	'Data Range is abnormal
+				End If
+			Else
+				DataCheck = ILLEGAL_DATA_ADDRESS	'Data Address is abnormal
+			End If
+		'--------------------------------------------------------------------------------------------
+		Case "Write15"
+			'Write Type Function
+			Start_Addr = Data(0)	'Set Message Starting Address
+			Total_Addr = Data(1)	'Set Quantity of Coils to Read
+
+			If 0 < Total_Addr Then 
+				'No Error
+				If ((&h0001 <= Total_Addr) AND (Total_Addr <= &h07B0)) Then 
+					'No Error
+					If (Total_Addr = (UBound(Data(2)) +1)) Then
+						DataCheck = 0	'No Error
+					Else
+						DataCheck = ILLEGAL_DATA_VALUE	
+					End If
+				Else 
+					DataCheck = ILLEGAL_DATA_VALUE
+				End If 
+			Else
+				DataCheck = ILLEGAL_DATA_ADDRESS	'Data Address is abnormal
+			End If 
+	End Select
+End Function

@@ -1,0 +1,155 @@
+'!TITLE "Modbus - Data Definition Functions"
+
+'RC8 Option - Modbus Server ------------------------------------------------
+' @file    DataDefinintion.pcs
+' @brief   Update routines of Coils and Register
+' @details This subroutines is what relates the modbus tables to actual 
+'		   robot data.
+'
+' @version 1.0.1
+' @date    2016/05/02
+' @author  Carlos A. Lopez (DPAM - R&D)	
+'
+' Software License Agreement (MIT License)
+'
+' @copyright Copyright (c) 2019 DENSO 2DLab
+'
+' Permission is hereby granted, free of charge, to any person obtaining a copy
+' of this software and associated documentation files (the "Software"), to deal
+' in the Software without restriction, including without limitation the rights
+' to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+' copies of the Software, and to permit persons to whom the Software is
+' furnished to do so, subject to the following conditions:
+'
+' The above copyright notice and this permission notice shall be included in
+' all copies or substantial portions of the Software.
+'
+' THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+' IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+' FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+' AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+' LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+' OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+' THE SOFTWARE.
+'-------------------------------------------------------------------------------
+
+#Include "ModbusServer.h"
+
+Sub UpdateCoilTable(UpdateMode As String)
+	Dim Index As Integer
+	Select Case UpdateMode
+		Case "Read"
+		'--------------------------------------------------------
+			'System Inputs (Server's Perspective)
+			'Assuming Mini I/O	(Set Ports 0-7 to Dummy)
+			For Index = 0 To 7
+				Coils(Index) = IO[Index]
+			Next Index
+
+			'User Outputs (Server's Perspective)
+			'Assuming Mini I/O
+			For Index = 24 To 31
+				Coils(Index) = IO[Index]
+			Next Index
+
+			'Hand Outputs (Server's Perspective)
+			'Assuming Mini I/O
+			For Index = 64 To 71
+				Coils(index) = IO[Index]
+			Next Index
+
+			'Internal I/O 
+			'Assuming Mini I/O
+			For index = 128 To 511
+				Coils(index) = IO[Index]
+			Next Index
+			
+		'--------------------------------------------------------		
+
+		Case "Write"
+		'--------------------------------------------------------
+			'System Inputs (Server's Perspective)
+			'Assuming Mini I/O	(Set to Dummy)
+			For Index = 0 To 7
+				IO[Index] = -1*Coils(Index)
+			Next Index
+
+			'User Outputs (Server's Perspective)
+			'Assuming Mini I/O
+			For Index = 24 To 31
+				IO[Index] = -1*Coils(Index)
+			Next Index
+
+			'Hand Outputs (Server's Perspective)
+			'Assuming Mini I/O
+			For index = 64 To 71
+				IO[Index] = -1*Coils(Index)
+			Next index
+
+			'Internal I/O 
+			'Assuming Mini I/O
+			For Index = 128 To 511
+				IO[Index] = -1*Coils(Index)
+			Next Index			
+		'--------------------------------------------------------
+	End Select
+End Sub
+
+Sub UpdateDITable
+	'READ ONLY
+	'------------------------------------------------------------
+	Dim Index As Integer
+
+	'User Inputs
+	'Assuming Mini I/O
+	For Index = 8 To 15
+		DiscreteInputs(Index) = IO[Index]
+	Next Index
+
+	'System Output 
+	'Assuming Mini I/O
+	For Index = 16 To 23
+		DiscreteInputs(Index) = IO[Index]
+	Next Index
+
+	'Hand Input
+	'Assuming Mini I/O
+	For Index = 48 To 55
+		DiscreteInputs(Index) = IO[Index]
+	Next Index
+	'------------------------------------------------------------
+End Sub
+
+Sub UpdateHoldRegisters(UpdateMode As String)
+Dim index As Integer
+	Dim Data_Val As Variant
+	Select Case UpdateMode
+		Case "Read"
+		'--------------------------------------------------------
+			'I Global Variable Types
+			For Index = 0 To 99
+				HoldingRegisters(Index) = I[Index] 	'Map To I Variables
+			Next Index
+		'--------------------------------------------------------
+
+		Case "Write"
+		'--------------------------------------------------------
+			'I Global Variable Types
+			For Index = 0 To 99
+				I[Index] = HoldingRegisters(Index)	'Map To I Variables
+			Next Index
+		'--------------------------------------------------------
+	End Select 
+End Sub
+
+Sub UpdateInputRegisters
+	'READ ONLY
+	'------------------------------------------------------------
+	'System Functions 
+	InputRegisters(0) = GetLanguage		'0:Japanese, 1:English
+	InputRegisters(1) = CurOptMode		'1:Manual, 2: Teach Check, 3:Auto
+	InputRegisters(2) = LockState		'0:Off, 1:On
+	InputRegisters(3) = TakeArmState	'1:Active, 2:Inactive
+	InputRegisters(4) = DeadManState	'0:Off, 1:On
+	'------------------------------------------------------------
+End Sub
